@@ -73,6 +73,44 @@ ssh -o StrictHostKeyChecking=no \
     -i "$KEY_PATH" "ubuntu@$EC2_IP" \
     "minikube status && kubectl get nodes && sudo systemctl is-active minikube-nodeport-30080"
 
+step "Prepare a fresh Kubernetes API SSH tunnel"
+taskkill //F //IM ssh.exe >/dev/null 2>&1 || true
+
+MINIKUBE_IP="$(ssh -o StrictHostKeyChecking=no \
+                   -o UserKnownHostsFile=/dev/null \
+                   -i "$KEY_PATH" "ubuntu@$EC2_IP" \
+                   "sudo -u ubuntu -H minikube ip")"
+
+if [[ -z "$MINIKUBE_IP" ]]; then
+  echo "Could not read Minikube IP from EC2" >&2
+  exit 1
+fi
+
+ssh -f -N \
+    -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
+    -o ExitOnForwardFailure=yes \
+    -i "$KEY_PATH" \
+    -L "127.0.0.1:18443:$MINIKUBE_IP:8443" \
+    "ubuntu@$EC2_IP"
+
+start_epoch="$(date +%s)"
+while true; do
+  if curl -ksS --max-time 5 https://127.0.0.1:18443/version >/dev/null 2>&1; then
+    break
+  fi
+
+  now_epoch="$(date +%s)"
+  if (( now_epoch - start_epoch > 120 )); then
+    echo "Timed out waiting for local Kubernetes API tunnel https://127.0.0.1:18443" >&2
+    echo "Debug on EC2: ssh -i '$KEY_PATH' ubuntu@$EC2_IP 'minikube status && sudo -u ubuntu -H minikube ip'" >&2
+    exit 1
+  fi
+
+  echo "Waiting for Kubernetes API tunnel..."
+  sleep 5
+done
+
 step "Apply Kubernetes resources through Terraform Kubernetes provider"
 cd "$K8S_DIR"
 terraform init
@@ -81,4 +119,3 @@ terraform apply -auto-approve
 step "Done"
 echo "EC2 IP:  $EC2_IP"
 echo "ALB URL: http://$ALB_DNS"
-
