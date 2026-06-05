@@ -2,6 +2,10 @@
 **/.terraform/*
 .terraform/
 
+# Only README.md should be committed as Markdown documentation
+*.md
+!README.md
+
 # Terraform state files contain infrastructure details and can contain sensitive values
 *.tfstate
 *.tfstate.*
@@ -46,4 +50,3 @@ certs/
 Thumbs.db
 .vscode/
 .idea/
-
